@@ -1,0 +1,277 @@
+/*Probar libreria CRC o terminar el calculo CRC*/
+
+//Configuracion de tiempos
+#define T 250 //period in micro seconds
+#define D 125 //tolerance in micro seconds
+
+// Configuracion de pines
+#define SHD 3
+#define RF_PIN 2
+
+//Array de inicio o cabecera de RFID
+const bool start[11] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}; //start
+
+bool datos[80], CRC[16], operacion[80], resto[16];
+
+void setup()
+{
+
+  Serial.begin(9600);
+
+  pinMode(SHD, OUTPUT);
+  pinMode(RF_PIN, INPUT);
+
+  digitalWrite(SHD, HIGH);
+  delay(2000);
+  digitalWrite(SHD, LOW);
+
+  Serial.println("Serial correcto");
+}
+
+void loop()
+{
+  int contador = 0;
+
+  completar_ceros(datos);
+
+  //Comenzamos la busqueda de cabecera (000000000001)
+  comienzo_busqueda();
+
+  leer_bits_datos(datos);
+
+  //leer_bits_crc(CRC);
+
+  Serial.println("Datos correctos");
+
+  for (int j = 79; j >= 16; j--)
+  {
+    Serial.print(datos[j]);
+    contador++;
+    if (contador == 8)
+    {
+      Serial.print(" ");
+      contador = 0;
+    }
+  }
+
+
+  /* for (int j = 0; j < 16; j++)
+       Serial.print(CRC[j]);
+      contador++;
+      if (contador == 8) {
+       Serial.print(" ");
+       contador = 0;
+      }*/
+  Serial.println("");
+}
+
+void comienzo_busqueda()
+//Realiza la busqueda de la cabecera del codigo RFID
+{
+  Serial.println("Buscando...");
+  int i = 0;
+  do
+  {
+    if (leer_pin() == start[i])
+    {
+      i++;
+    }
+    else
+      i = 0;
+  } while (i < 11);
+
+  //Serial.println("Se encontro la cabecera");
+  return;
+}
+
+void leer_bits_datos(bool cargar_datos[])
+{
+
+  int j = 16;
+
+  //Lee todos los bits recibidos y los almacena en el array pasado por porametro
+  for (int i = 0; i < 72; i++)
+  {
+    if (i == 8 || i == 17 || i == 26 || i == 35 || i == 44 || i == 53 || i == 62 || i == 71)
+    {
+    }
+    else
+    {
+
+      cargar_datos[j] = leer_pin();
+      j++;
+    }
+  }
+}
+
+void leer_bits_crc(bool cargar_datos[])
+{
+  int j = 0;
+  //Lee todos los bits recibidos y los almacena en el array pasado por porametro
+  for (int i = 0; i < 18; i++)
+  {
+    if (i == 8 || i == 17)
+    {
+    }
+    else
+    {
+
+      cargar_datos[j] = leer_pin();
+      j++;
+    }
+  }
+}
+
+/*bool operacion (bool datos[], bool crc[]) {
+  for (int j=79; j>=0; j--){
+  for (int i=15; i>=0; i--){
+  datos[j] = datos[j]^crc[i]
+
+  }*/
+
+bool leer_pin()
+//Lee el pin rf_pin para encontrar los bits segun codificacion manchester
+{
+  boolean state = digitalRead(RF_PIN);
+  long start = micros();
+  long delta;
+  long time_out = ((2 * T) + D); //if we do not detect 2 valids edges in this interval someting's wrong
+
+  do
+  {
+    do
+    {
+      delta = micros() - start;
+    } while ((state == digitalRead(RF_PIN)));
+
+    if (delta >= time_out)
+    {
+      
+      return 3;
+    }
+    else
+    {
+      state = !state; //it is not a time out so the state of the ligne has changed
+    }
+    //Hasta aca es sincronizacion
+    if (delta <= ((2 * T )+ D) && delta >= ((2 * T) - D))
+    {
+
+      state = digitalRead(RF_PIN); //Es el valor manchenter con el que
+      start = micros();
+
+      do
+      {
+        delta = micros() - start;
+      } while ((state == digitalRead(RF_PIN)));
+
+      // Cuando el tiempo es igual a T
+      if ((delta <= (T + D)) && (delta >= (T - D)))
+      {
+
+        state = !state;
+        start = micros();
+
+        do
+        {
+          delta = micros() - start;
+        } while ((state == digitalRead(RF_PIN)));
+
+        if ((delta <= (T + D)) && (delta >= (T - D)))
+        {
+          return state;
+        }
+        else
+        {
+          return 3;
+        }
+      } else if ((delta <= (2 * T + D)) && (delta >= (2 * T - D)))
+      {
+
+        return !state;
+      }
+      else
+      {
+        return 3;
+      }
+    }
+    else
+    {
+    }
+  } while (true);
+}
+
+void completar_ceros(bool cargar_datos[])
+{
+  //Agregamos los ultimos 16 ceros para la operacion XOR
+  for (int k = 0; k < 16; k++)
+  {
+    cargar_datos[k] = 0;
+  }
+}
+
+bool operacion_xor(bool datoXor[], bool crcXor[])
+{
+  bool original[80];
+
+  //Copiar vector
+  for (int i = 0; i < 80; i++)
+  {
+    original[i] = datoXor[i];
+  }
+
+  int j = 15;
+  for (int i = 79; i > 16; i--)
+  {
+    if (datoXor[i] == 1)
+    {
+      int k = i;
+      do
+      {
+        datoXor[k] = datoXor[k] ^ crcXor[j];
+        j--;
+        k--;
+      } while (j >= 0);
+      j = 15;
+    }
+  }
+
+  //Agrego resto al vector original
+  for (int i = 16; i >= 0; i--)
+  {
+    original[i] = datoXor[i];
+  }
+
+  j = 15;
+  for (int i = 79; i > 16; i--)
+  {
+    if (datoXor[i] == 1)
+    {
+      int k = i;
+      do
+      {
+        datoXor[k] = datoXor[k] ^ crcXor[j];
+        j--;
+        k--;
+      } while (j >= 0);
+      j = 15;
+    }
+  }
+
+  //Mostramos vector
+  for (int j = 79; j >= 0; j--)
+  {
+    Serial.print(datoXor[j]);
+  }
+  Serial.println("Fin xor");
+
+  //Check si todo el resultado es 0
+  for (int i = 0; i < 80; i++)
+  {
+    if (datoXor[i] == 1)
+    {
+      return false;
+    }
+  }
+  return true;
+}
